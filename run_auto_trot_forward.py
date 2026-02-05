@@ -34,6 +34,7 @@ def main(use_imu=False):
     state = State()
 
     last_loop = time.time()
+    initialize_time = last_loop ### For time control
 
     # Flag so we only send trot toggle once
     trot_enabled = False
@@ -49,6 +50,10 @@ def main(use_imu=False):
         if now - last_loop < config.dt:
             continue
         last_loop = now
+
+        #if now - initialize_time > 5.0:
+            # Give some time to initialize
+            #continue
 
         # Build a fresh command each cycle
         command = Command()

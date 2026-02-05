@@ -27,4 +27,4 @@ class IMU:
         roll_deg  = math.degrees(math.atan(ax / math.sqrt(ay * ay + az * az)))
         pitch_deg = math.degrees(math.atan(ay / math.sqrt(ax * ax + az * az)))
 
-        return roll_deg, pitch_deg
+        return pitch_deg, roll_deg

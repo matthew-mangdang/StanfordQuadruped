@@ -1,6 +1,5 @@
 import numpy as np
 import time
-from src.IMU import IMU
 from src.Controller import Controller
 from src.State import State, BehaviorState
 from MangDang.mini_pupper.HardwareInterface import HardwareInterface
@@ -21,12 +20,6 @@ def main(use_imu=False):
     disp = Display()
     disp.show_ip()
 
-    # Optional IMU
-    if use_imu:
-        imu = IMU(port="/dev/ttyACM0")
-        imu.flush_buffer()
-    else:
-        imu = None
 
     # Controller and state
     controller = Controller(
@@ -35,6 +28,8 @@ def main(use_imu=False):
     )
     state = State()
     last_loop = time.time()
+    initialize_time = last_loop  # Track start time for protection
+    last_print_time = last_loop
 
     ### IMU handler
     # Set up esp32 interface
@@ -48,9 +43,12 @@ def main(use_imu=False):
     # Choose forward speed (m/s). Keep within config.max_x_velocity.
     forward_speed = min(0.15, config.max_x_velocity)
     forward_speed = 0.0
+    end_time = 10.0 # seconds until auto-stop for safety
 
     print("Auto-trot script started.")
     print(f"Using forward speed: {forward_speed} m/s")
+    print(f"Auto-stop time set to: {end_time} seconds")
+
 
     while True:
         now = time.time()
@@ -58,10 +56,24 @@ def main(use_imu=False):
             continue
         last_loop = now
 
+        # Protection: Return to default position after 5 seconds
+        if now - initialize_time > end_time:
+            print(f"{end_time} seconds elapsed - returning robot to REST position")
+            command = Command()
+            if state.behavior_state == BehaviorState.TROT:
+                command.trot_event = True  # Toggle back to REST
+            controller.run(state, command, disp)
+            hardware_interface.set_actuator_postions(state.joint_angles)
+            time.sleep(0.5)  # Give time to settle
+            break
+
+
         # Get imu data
         imu_data = imu_handler.get_raw_data()
-        print(f"IMU Raw Data: {imu_data}")
-        print(f"IMU Orientation (roll, pitch): {imu_handler.get_orientation(imu_data)}")
+        if (now - last_print_time)%0.5 > 0:
+            #print(f"IMU Raw Data: {imu_data}")
+            print(f"IMU Orientation pitch, roll: {imu_handler.get_orientation(imu_data)[0]}, {imu_handler.get_orientation(imu_data)[1]}")
+            last_print_time = now
 
         # Build a fresh command each cycle
         command = Command()
@@ -73,11 +85,8 @@ def main(use_imu=False):
             print("Sending trot_event -> robot should enter trot gait.")
 
         # After both toggles, stay in trot and just command velocity
-        # IMU orientation (optional)
-        if imu is not None:
-            quat_orientation = imu.read_orientation()
-        else:
-            quat_orientation = np.array([1.0, 0.0, 0.0, 0.0])
+        # IMU orientation (optional) Currently manual set to no rotation
+        quat_orientation = np.array([1.0, 0.0, 0.0, 0.0])
         state.quat_orientation = quat_orientation
 
         # Constant forward command, no lateral or turning motion
