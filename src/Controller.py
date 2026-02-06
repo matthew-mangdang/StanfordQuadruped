@@ -9,6 +9,8 @@ from transforms3d.euler import euler2mat, quat2euler
 from transforms3d.quaternions import qconjugate, quat2axangle
 from transforms3d.axangles import axangle2mat
 
+import math
+
 
 class Controller:
     """Controller and planner object
@@ -112,7 +114,10 @@ class Controller:
 
             # Construct foot rotation matrix to compensate for body tilt
             (roll, pitch, yaw) = quat2euler(state.quat_orientation)
-            correction_factor = 0.8
+            roll = math.radians(state.roll) 
+            pitch = math.radians(state.pitch)
+            print(f"State pitch at body tilt cal1: {state.pitch:.2f}")
+            correction_factor = 1.2 # 0.8
             max_tilt = 0.4
             roll_compensation = correction_factor * np.clip(-roll, -max_tilt, max_tilt)
             pitch_compensation = correction_factor * np.clip(-pitch, -max_tilt, max_tilt)
@@ -193,12 +198,15 @@ class Controller:
             
  # Construct foot rotation matrix to compensate for body tilt
             (roll, pitch, yaw) = quat2euler(state.quat_orientation)
+            roll = math.radians(state.roll) 
+            pitch = math.radians(state.pitch)
+            print(f"State pitch at body tilt cal2: {state.pitch:.2f}")
             correction_factor = 0.8
             max_tilt = 0.4
             roll_compensation = correction_factor * np.clip(-roll, -max_tilt, max_tilt)
             pitch_compensation = correction_factor * np.clip(-pitch, -max_tilt, max_tilt)
             rmat = euler2mat(roll_compensation, pitch_compensation, 0)
-
+            print(f"The rotational compensation is roll: {rmat}")
             rotated_foot_locations = rmat.T @ rotated_foot_locations
 
             state.joint_angles = self.inverse_kinematics(

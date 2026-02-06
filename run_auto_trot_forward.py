@@ -34,13 +34,16 @@ def main(use_imu=False):
     state = State()
 
     last_loop = time.time()
-    initialize_time = last_loop ### For time control
+    initialize_time = last_loop  # Track start time for protection
+    last_print_time = last_loop
 
     # Flag so we only send trot toggle once
     trot_enabled = False
 
     # Choose forward speed (m/s). Keep within config.max_x_velocity.
-    forward_speed = min(0.15, config.max_x_velocity)
+    #forward_speed = min(0.09, config.max_x_velocity)
+    forward_speed = 0.0
+    end_time = 10.0
 
     print("Auto-trot script started.")
     print(f"Using forward speed: {forward_speed} m/s")
@@ -51,9 +54,17 @@ def main(use_imu=False):
             continue
         last_loop = now
 
-        #if now - initialize_time > 5.0:
-            # Give some time to initialize
-            #continue
+        # Protection: Return to default position after 5 seconds
+        if now - initialize_time > end_time:
+            print(f"{end_time} seconds elapsed - returning robot to REST position")
+            command = Command()
+            if state.behavior_state == BehaviorState.TROT:
+                command.trot_event = True  # Toggle back to REST
+                command.horizontal_velocity = np.array([0.0, 0.0])
+            controller.run(state, command, disp)
+            hardware_interface.set_actuator_postions(state.joint_angles)
+            time.sleep(0.5)  # Give time to settle
+            break
 
         # Build a fresh command each cycle
         command = Command()
