@@ -67,7 +67,8 @@
 from src.MovementGroup import MovementGroups
 
 Move = MovementGroups()
-
+Move.gait_uni(0.25,0)
+"""
 # Level 1: movements without input parameters
 Move.look_right()
 Move.look_upperright()
@@ -104,5 +105,5 @@ Move.stop()
 # Level 3 samples
 Move.body_cycle()
 #Move.head_ellipse()
-
+"""
 MovementLib = Move.MovementLib

@@ -114,9 +114,9 @@ class Controller:
 
             # Construct foot rotation matrix to compensate for body tilt
             (roll, pitch, yaw) = quat2euler(state.quat_orientation)
-            roll = math.radians(state.roll) 
-            pitch = math.radians(state.pitch)
-            print(f"State pitch at body tilt cal1: {state.pitch:.2f}")
+            #roll = math.radians(state.roll) 
+            #pitch = math.radians(state.pitch)
+            #print(f"State pitch at body tilt cal1: {state.pitch:.2f}")
             correction_factor = 1.2 # 0.8
             max_tilt = 0.4
             roll_compensation = correction_factor * np.clip(-roll, -max_tilt, max_tilt)
@@ -132,7 +132,7 @@ class Controller:
         elif state.behavior_state == BehaviorState.HOP:
             state.foot_locations = (
                 self.config.default_stance
-                + np.array([0, 0, -0.03])[:, np.newaxis]
+                + np.array([0, 0, -0.01])[:, np.newaxis]
             )
             state.joint_angles = self.inverse_kinematics(
                 state.foot_locations, self.config
@@ -141,7 +141,7 @@ class Controller:
         elif state.behavior_state == BehaviorState.FINISHHOP:
             state.foot_locations = (
                 self.config.default_stance
-                + np.array([0, 0, -0.105])[:, np.newaxis]
+                + np.array([0, 0, -0.3])[:, np.newaxis]
             )
             state.joint_angles = self.inverse_kinematics(
                 state.foot_locations, self.config
@@ -198,15 +198,15 @@ class Controller:
             
  # Construct foot rotation matrix to compensate for body tilt
             (roll, pitch, yaw) = quat2euler(state.quat_orientation)
-            roll = math.radians(state.roll) 
-            pitch = math.radians(state.pitch)
-            print(f"State pitch at body tilt cal2: {state.pitch:.2f}")
+            #roll = math.radians(state.roll) 
+            #pitch = math.radians(state.pitch)
+            #print(f"State pitch at body tilt cal2: {state.pitch:.2f}")
             correction_factor = 0.8
             max_tilt = 0.4
             roll_compensation = correction_factor * np.clip(-roll, -max_tilt, max_tilt)
             pitch_compensation = correction_factor * np.clip(-pitch, -max_tilt, max_tilt)
             rmat = euler2mat(roll_compensation, pitch_compensation, 0)
-            print(f"The rotational compensation is roll: {rmat}")
+            #print(f"The rotational compensation is roll: {rmat}")
             rotated_foot_locations = rmat.T @ rotated_foot_locations
 
             state.joint_angles = self.inverse_kinematics(

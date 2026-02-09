@@ -1,6 +1,7 @@
 import numpy as np
 import time
 import math
+from collections import deque
 from src.Controller import Controller
 from src.State import State, BehaviorState
 from MangDang.mini_pupper.HardwareInterface import HardwareInterface
@@ -49,8 +50,8 @@ def main(use_imu=False):
     imu_handler = IMU(esp32)
 
     # Set up filters
-    initial_pitch = 3.274615385  ### Later use self calibration to set this automatically
-    initial_roll = -0.841794872
+    initial_pitch = 3.3  ### Later use self calibration to set this automatically
+    initial_roll = -0.55
     
     sample_rate = 1/0.005
     cutoff_freq = 5.0  # Hz
@@ -60,13 +61,19 @@ def main(use_imu=False):
     pitch_filter_fo = first_order_IIRLowPassFilter(cutoff_freq, sample_rate)
     roll_filter_fo = first_order_IIRLowPassFilter(cutoff_freq, sample_rate)
 
+    median_window = 5
+    pitch_median_buf = deque(maxlen=median_window)
+    roll_median_buf = deque(maxlen=median_window)
+
+    alpha = 1.0 # Weight for the pitch & roll
+
     # Set up PID controller 
     # Parameters can be tuned to be suitable with the need
-    kp = 0.8
-    ki = 0.01
+    kp = 0.6
+    ki = 0.05
     kd = 0.01
-    pid_pitch = PIDController(kp, ki, kd, initial_pitch)
-    pid_roll = PIDController(kp, ki, kd, initial_roll)
+    pid_pitch = PIDController(kp, ki, kd, 0.0)    ### setpoint = initial_pitch
+    pid_roll = PIDController(kp, ki, kd, 0.0)      ### setpoint = initial_roll
     
 
 
@@ -75,14 +82,17 @@ def main(use_imu=False):
     trot_enabled = False
 
     # Choose forward speed (m/s). Keep within config.max_x_velocity.
-    forward_speed = min(0.05, config.max_x_velocity)
+    forward_speed = min(0.09, config.max_x_velocity)
+    side_speed = min (0.02, config.max_y_velocity)
     #forward_speed = 0.0
-    end_time = 25.0 # seconds until auto-stop for safety
+    #side_speed = 0.0
+    run_time = 10.0 # seconds until auto-stop for safety
     previous_time_pitch = time.time()
     previous_time_roll = time.time()
     print("Auto-trot script started.")
     print(f"Using forward speed: {forward_speed} m/s")
-    print(f"Auto-stop time set to: {end_time} seconds")
+    print(f"Using side speed: {side_speed} m/s")
+    print(f"Auto-stop time set to: {run_time} seconds")
 
 
 
@@ -94,8 +104,8 @@ def main(use_imu=False):
         last_loop = now
 
         # Protection: Return to default position after 5 seconds
-        if now - initialize_time > end_time:
-            print(f"{end_time} seconds elapsed - returning robot to REST position")
+        if now - initialize_time > run_time:
+            print(f"{run_time} seconds elapsed - returning robot to REST position")
             command = Command()
             if state.behavior_state == BehaviorState.TROT:
                 command.trot_event = True  # Toggle back to REST
@@ -112,14 +122,18 @@ def main(use_imu=False):
         roll = imu_handler.get_orientation(imu_data)[1]
         imu_data_filtered1 = (pitch_filter.update(pitch), roll_filter.update(roll))
         imu_data_filtered2 = (pitch_filter_fo.update(pitch), roll_filter_fo.update(roll))
+        pitch_median_buf.append(imu_data_filtered2[0])
+        roll_median_buf.append(imu_data_filtered2[1])
+        median_pitch = float(np.median(pitch_median_buf))
+        median_roll = float(np.median(roll_median_buf))
         
-        if (now - last_print_time) >= 0.25:
+        if (now - last_print_time) >= 0.15:
             #print(f"IMU Raw Data: {imu_data}")
             #print(f"{'Raw pitch, roll:':35} {pitch:.2f}, {roll:.2f}")
             #print(f"{'Filtered pitch, roll:':35} {imu_data_filtered1[0]:.2f}, {imu_data_filtered1[1]:.2f}")
             #print(f"{'First Order Filtered pitch, roll:':35} {imu_data_filtered2[0]:.2f}, {imu_data_filtered2[1]:.2f}")
             print(f"Pitch&Roll: Raw; Filter; FO Filter: {pitch:.2f},{roll:.2f}; {imu_data_filtered1[0]:.2f},{imu_data_filtered1[1]:.2f}; {imu_data_filtered2[0]:.2f},{imu_data_filtered2[1]:.2f}")
-            print(f"The state pitch and roll are {state.pitch:.2f} and {state.roll:.2f}")
+            #print(f"The state pitch and roll are {state.pitch:.2f} and {state.roll:.2f}")
             last_print_time = now
 
         # Build a fresh command each cycle
@@ -138,40 +152,46 @@ def main(use_imu=False):
 
 
         # Constant forward command, no lateral or turning motion
-        command.horizontal_velocity = np.array([forward_speed, 0.0])
+        command.horizontal_velocity = np.array([forward_speed, side_speed])
         command.yaw_rate = 0.0
 
         # Add pitch and roll correction
-        corrected_pitch = imu_data_filtered2[0] - initial_pitch
-        corrected_roll = imu_data_filtered2[1] - initial_roll
+        corrected_pitch = median_pitch - initial_pitch
+        corrected_roll = median_roll - initial_roll
         #state.pitch = math.radians(corrected_pitch)
         #state.roll = math.radians(roll)
-        if corrected_pitch > 10.0 or corrected_pitch < -5.0:
-            #command.pitch = 0
-            elapsed_pitch = time.time() - previous_time_pitch   
-            #Calculate driven angles by PID controller
-            error_pitch = pid_pitch.compute(-corrected_pitch, elapsed_pitch)
-            previous_time_pitch = time.time()
-            command.pitch = math.radians(error_pitch)
-            
-        
-        if corrected_roll > 10.0 or corrected_roll < -5.0:
-            #command.roll = 0
-            #command.roll = -math.radians(corrected_roll)
-            elapsed_roll = time.time() - previous_time_roll
-            #Calculate driven angles by PID controller
-            error_roll = pid_roll.compute(-corrected_roll, elapsed_roll)
-            previous_time_roll = time.time()
-            command.roll = -math.radians(error_roll)
-            
 
-        print(f"Corrected Pitch: {corrected_pitch:.2f}, Corrected Roll: {corrected_roll:.2f}")
+        #if corrected_pitch > 1.0 or corrected_pitch < -1.0:
+        #command.pitch = 0
+        elapsed_pitch = time.time() - previous_time_pitch
+        #print(f"elapsed_pitch: {elapsed_pitch:.4f} seconds")
+        #Calculate driven angles by PID controller
+        error_pitch = pid_pitch.compute(corrected_pitch , 0.015)
+        previous_time_pitch = time.time()
+        #command.pitch = -math.radians(error_pitch* alpha)
+        #print(f"Error pitch: {error_pitch:.2f}, Commanded pitch: {command.pitch:.2f}")
+        
+        #if corrected_roll > 1.0 or corrected_roll < -1.0:
+        #command.roll = 0
+        #command.roll = -math.radians(corrected_roll)
+        elapsed_roll = time.time() - previous_time_roll
+        #print(f"elapsed_roll: {elapsed_roll:.4f} seconds")
+        #Calculate driven angles by PID controller
+        error_roll = pid_roll.compute(corrected_roll , 0.015)
+        previous_time_roll = time.time()
+        #command.roll = math.radians(error_roll* alpha)
+        #print(f"Error roll: {error_roll:.2f}, Commanded roll: {command.roll:.2f}")
+        #print(f"Error pitch: {error_pitch:7.2f}, Commanded pitch: {command.pitch:7.2f}    Error roll: {error_roll:7.2f}, Commanded roll: {command.roll:7.2f}")   
+
+        #print(f"Corrected Pitch: {corrected_pitch:.2f}, Corrected Roll: {corrected_roll:.2f}")
     
 
         # Run controller and update hardware
+        #print(f"The command at run step: Pitch: {math.degrees(command.pitch):.2f}, Roll: {math.degrees(command.roll):.2f}")
         controller.run(state, command, disp)
         hardware_interface.set_actuator_postions(state.joint_angles)
 
 
 if __name__ == "__main__":
     main()
+
