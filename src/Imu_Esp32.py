@@ -1,6 +1,9 @@
 from MangDang.mini_pupper.ESP32Interface import ESP32Interface
 import math
 import numpy as np
+from threading import Thread, Lock
+import queue
+import time
 
 class IMU:
     """ 
@@ -160,3 +163,101 @@ class PIDController:
         self.previous_error = error
         
         return output
+
+
+
+class KalmanFilter:
+    def __init__(self, dt=None):
+        # State [pitch, roll]
+        self.x = np.zeros((2,1))
+        self.P = np.eye(2) * 0.1
+        self.last_time = time.time()
+
+        # Transition (identity)
+        self.F = np.eye(2)
+        self.dt = dt
+        self.B = None
+
+        # Process noise (gyro drift)
+        self.Q = np.eye(2) * 1e-3
+
+        # Measurement model (accelerometer tilt)
+        self.H = np.eye(2)
+        self.R = np.eye(2) * 0.05  # measurement noise
+
+        # Threaded processing support
+        self._lock = Lock()
+        self._measurement_queue = queue.Queue()
+        self._running = False
+        self._filter_thread = None
+
+    def set_dt(self, dt):
+        self.dt = dt
+        self.B = np.eye(2) * dt
+
+    def predict(self, gyro, current_time=None):
+
+        if current_time is None:
+            current_time = time.time()
+        self.dt = current_time - self.last_time
+        self.last_time = current_time
+        self.B = np.eye(2) * self.dt
+
+        u = np.array(gyro).reshape(2,1)  # [gyro_pitch_rate, gyro_roll_rate]
+        self.x = self.F @ self.x + self.B @ u
+        self.P = self.F @ self.P @ self.F.T + self.Q
+
+    def update(self, accel):
+        """
+        Updates the State, Prediction and Measurement models of the Kalman Filter based on the new accelerometer measurement.
+        """
+        # Compute pitch/roll from accelerometer
+        pitch_acc = np.arctan2(accel[0], np.sqrt(accel[1]**2 + accel[2]**2))
+        roll_acc = np.arctan2(accel[1], np.sqrt(accel[0]**2 + accel[2]**2))
+        #roll_acc  = np.arctan2(accel[1], accel[2])
+        #print(f"Debug: Pitch & Roll : {math.degrees(pitch_acc):.2f}, {math.degrees(roll_acc):.2f} degrees")
+        z = np.array([pitch_acc, roll_acc]).reshape(2,1)
+
+        # Kalman update
+        y = z - self.H @ self.x
+        S = self.H @ self.P @ self.H.T + self.R
+        K = self.P @ self.H.T @ np.linalg.inv(S)
+        self.x = self.x + K @ y
+        self.P = (np.eye(2) - K @ self.H) @ self.P
+
+    def get_state(self):
+        """
+        Returns:
+            Current estimated pitch and roll (rad) as a flat array [pitch, roll]
+        """
+        with self._lock:
+            return self.x.flatten().copy()
+
+    def add_measurement(self, gyro, accel, dt=None):
+        self._measurement_queue.put({"gyro": gyro, "accel": accel, "dt": dt})
+
+    def _filter_loop(self):
+        while self._running:
+            try:
+                measurement = self._measurement_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            if measurement["dt"] is not None:
+                self.set_dt(measurement["dt"])
+
+            with self._lock:
+                self.predict(measurement["gyro"])
+                self.update(measurement["accel"])
+
+    def start(self):
+        if not self._running:
+            self._running = True
+            self._filter_thread = Thread(target=self._filter_loop)
+            self._filter_thread.start()
+
+    def stop(self):
+        self._running = False
+        if self._filter_thread is not None:
+            self._filter_thread.join()
+
