@@ -17,6 +17,32 @@ class IMU:
         self.imu_raw = self.esp32.imu_get_data()
         return self.imu_raw
 
+    def get_offset (self, num_samples=100, pitch_offset=None, roll_offset=None):
+        """
+        Collects a number of samples and computes the mean pitch and roll to use as offsets.
+        Can also manual set the offset to skip this step.
+        """
+        if pitch_offset is not None and roll_offset is not None:
+            print(f"Using provided offsets. Pitch offset: {pitch_offset:.2f} degrees, Roll offset: {roll_offset:.2f} degrees")
+            return pitch_offset, roll_offset
+
+        pitch_samples = []
+        roll_samples = []
+        print(f"Start getting imu offset for pitch and roll, keep the robot still...")
+
+        for _ in range(num_samples):
+            data = self.get_raw_data()
+            pitch, roll = self.get_orientation(data)
+            pitch_samples.append(pitch)
+            roll_samples.append(roll)
+            time.sleep(0.15)  # small delay between samples
+        
+        pitch_offset = np.mean(pitch_samples)
+        roll_offset = np.mean(roll_samples)
+        print(f"Retrieved offset.")
+        print(f"Pitch offset: {pitch_offset:.2f} degrees, Roll offset: {roll_offset:.2f} degrees")
+        return pitch_offset, roll_offset
+
     def get_orientation(self, data):
         """
         Gets pitch and roll in degrees
@@ -167,7 +193,7 @@ class PIDController:
 
 
 class KalmanFilter:
-    def __init__(self, dt=None):
+    def __init__(self, Q, R, dt):
         # State [pitch, roll]
         self.x = np.zeros((2,1))
         self.P = np.eye(2) * 0.1
@@ -179,11 +205,16 @@ class KalmanFilter:
         self.B = None
 
         # Process noise (gyro drift)
-        self.Q = np.eye(2) * 1e-3
+        self.Q = Q
+        #self.Q = np.eye(2) * 1e-3
 
         # Measurement model (accelerometer tilt)
+        # The R is variance of the raw pitch & roll during trotting/stationary/walking
         self.H = np.eye(2)
-        self.R = np.eye(2) * 0.05  # measurement noise
+        self.R = R
+        #self.R = np.eye(2) * 0.05  # measurement noise
+        #self.R[0,0] = 0.040671# *0.5 #Artificially set lower
+        #self.R[1,1] = 0.014754#*0.5 #Artificially set lower
 
         # Threaded processing support
         self._lock = Lock()
@@ -195,11 +226,28 @@ class KalmanFilter:
         self.dt = dt
         self.B = np.eye(2) * dt
 
-    def predict(self, gyro, current_time=None):
+    def set_Q(self, q1, q2, q_dt=0.015):
+        """
+        Set the process noise covariance matrix Q.
+        q1: Pitch process variance (e.g., gyro drift) in rad/s^2
+        q2: Roll process variance (e.g., gyro drift) in rad/s^2
+        q_dt: Time step for the process noise in seconds
 
+        It is often too small and requires manual inflation
+        """
+        inflation_factor = 500.0  # Adjust this factor based on observed performance
+        self.Q = (np.diag([q1, q2]) * q_dt**2) * inflation_factor  # Scale by dt^2 to reflect variance over the time step
+        print(f"Process noise covariance Q set to:\n{self.Q}")
+
+    def predict(self, gyro, current_time=None):
+        """
+        Predicts the next state based on the process model
+        Gyroscope: degree/s, dt: seconds
+        """
         if current_time is None:
             current_time = time.time()
         self.dt = current_time - self.last_time
+        #print(f"Debugging purpose, dt : self.dt: {self.dt:.4f} seconds")
         self.last_time = current_time
         self.B = np.eye(2) * self.dt
 
@@ -207,14 +255,16 @@ class KalmanFilter:
         self.x = self.F @ self.x + self.B @ u
         self.P = self.F @ self.P @ self.F.T + self.Q
 
-    def update(self, accel):
+    def update(self, orientation):
         """
         Updates the State, Prediction and Measurement models of the Kalman Filter based on the new accelerometer measurement.
         """
         # Compute pitch/roll from accelerometer
-        pitch_acc = np.arctan2(accel[0], np.sqrt(accel[1]**2 + accel[2]**2))
-        roll_acc = np.arctan2(accel[1], np.sqrt(accel[0]**2 + accel[2]**2))
+        #pitch_acc = np.arctan2(accel[0], np.sqrt(accel[1]**2 + accel[2]**2))
+        #roll_acc = np.arctan2(accel[1], np.sqrt(accel[0]**2 + accel[2]**2))
         #roll_acc  = np.arctan2(accel[1], accel[2])
+        roll_acc = orientation[1]
+        pitch_acc = orientation[0]
         #print(f"Debug: Pitch & Roll : {math.degrees(pitch_acc):.2f}, {math.degrees(roll_acc):.2f} degrees")
         z = np.array([pitch_acc, roll_acc]).reshape(2,1)
 

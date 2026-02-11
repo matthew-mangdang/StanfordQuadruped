@@ -21,6 +21,10 @@ from MangDang.mini_pupper.ESP32Interface import ESP32Interface
 def main(use_imu=False):
     """Run robot: auto-activate, auto-trot, constant forward motion."""
 
+    start_buffer = 0.0 # seconds to buffer imu data before starting trot
+    print(f"Start buffer: {start_buffer} seconds")
+    time.sleep(start_buffer)
+
     # Create config and hardware interfaces
     config = Configuration()
     hardware_interface = HardwareInterface()
@@ -49,6 +53,8 @@ def main(use_imu=False):
     # Set up esp32 interface
     esp32 = ESP32Interface()
     imu_handler = IMU(esp32)
+    pitch_offset, roll_offset = imu_handler.get_offset(50, 2.74, 1.51) ### Get offset for pitch and roll at zero
+
 
     # Set up filters
     initial_pitch = 3.3  ### Later use self calibration to set this automatically
@@ -66,11 +72,14 @@ def main(use_imu=False):
     pitch_median_buf = deque(maxlen=median_window)
     roll_median_buf = deque(maxlen=median_window)
 
-    alpha = 1.0 # Weight for the pitch & roll
+    alpha = 1.2 # Weight for the pitch & roll
 
     # Kalman filtering
-    kf = KalmanFilter()
+    Q = np.diag([0.000374, 0.000264]) # Gyro drift
+    R = np.diag([0.040671, 0.014754]) * 0.5 # Artificially set lower
+    kf = KalmanFilter(Q, R, dt=0.015)
     kf.start()
+    #kf.set_Q(Q, , q_dt=0.015)  # Set process noise covariance based on observed gyro variance during stationary/trotting
 
     # Set up PID controller 
     # Parameters can be tuned to be suitable with the need
@@ -91,7 +100,7 @@ def main(use_imu=False):
     side_speed = min (0.02, config.max_y_velocity)
     #forward_speed = 0.0
     #side_speed = 0.0
-    run_time = 100.0 # seconds until auto-stop for safety
+    run_time = 25.0 # seconds until auto-stop for safety
     previous_time_pitch = time.time()
     previous_time_roll = time.time()
     print("Auto-trot script started.")
@@ -99,6 +108,11 @@ def main(use_imu=False):
     print(f"Using side speed: {side_speed} m/s")
     print(f"Auto-stop time set to: {run_time} seconds")
 
+    raw_pitch_samples = []
+    raw_roll_samples = []
+    raw_pitch_rate_samples = []
+    raw_roll_rate_samples = []
+    #max_samples = 500  # collect 500 samples, then compute variance once
 
 
 
@@ -120,28 +134,38 @@ def main(use_imu=False):
             time.sleep(0.5)  # Give time to settle
             break
 
-
+        ### Sensor data processing
         # Get imu data & filtering
         imu_data = imu_handler.get_raw_data()
+
         pitch = imu_handler.get_orientation(imu_data)[0]
         roll = imu_handler.get_orientation(imu_data)[1]
         imu_data_filtered2 = (pitch_filter_fo.update(pitch), roll_filter_fo.update(roll))
-        pitch_median_buf.append(imu_data_filtered2[0])
-        roll_median_buf.append(imu_data_filtered2[1])
-        median_pitch = float(np.median(pitch_median_buf))
-        median_roll = float(np.median(roll_median_buf))
 
         gyro_imu = [math.radians(imu_data["gy"]), math.radians(imu_data["gx"])]
         accel_imu = [imu_data["ax"], imu_data["ay"], imu_data["az"]]
-        kf.add_measurement(gyro_imu, accel_imu)
+
+        # Handle initial offset
+        orientation_offset = [math.radians(pitch - pitch_offset), math.radians(roll - roll_offset)]
+        kf.add_measurement(gyro_imu, orientation_offset)
         pitch_kf, roll_kf = kf.get_state()
-        pitch_kf = math.degrees(pitch_kf)
-        roll_kf = math.degrees(roll_kf)
+
+        # Add to median buffer and compute median
+        pitch_median_buf.append(pitch_kf)
+        roll_median_buf.append(roll_kf)
+        median_pitch = float(np.median(pitch_median_buf))
+        median_roll = float(np.median(roll_median_buf))
 
         if (now - last_print_time) >= 0.15:
             #print(f"Pitch&Roll: Raw; Filter; FO Filter: {pitch:.2f},{roll:.2f}; {imu_data_filtered1[0]:.2f},{imu_data_filtered1[1]:.2f}; {imu_data_filtered2[0]:.2f},{imu_data_filtered2[1]:.2f}")
-            print(f"Pitch&Roll: Raw; KFilter; FO Filter: {pitch:.2f},{roll:.2f};    {pitch_kf:.2f},{roll_kf:.2f};   {imu_data_filtered2[0]:.2f},{imu_data_filtered2[1]:.2f}")
-            #print(f"The state pitch and roll are {state.pitch:.2f} and {state.roll:.2f}")
+            #print(f"Pitch&Roll: Raw; KFilter; FO Filter: {pitch:.2f},{roll:.2f};    {math.degrees(pitch_kf):.2f},{math.degrees(roll_kf):.2f};   {imu_data_filtered2[0]:.2f},{imu_data_filtered2[1]:.2f}")
+            print(f"Pitch&Roll: Raw; KFilter; Median: {pitch:.2f},{roll:.2f};    {math.degrees(pitch_kf):.2f},{math.degrees(roll_kf):.2f};   {math.degrees(median_pitch):.2f},{math.degrees(median_roll):.2f}")
+            
+            raw_pitch_samples.append(math.radians(pitch))
+            raw_roll_samples.append(math.radians(roll))
+            raw_pitch_rate_samples.append(math.radians(imu_data["gy"]))
+            raw_roll_rate_samples.append(math.radians(imu_data["gx"]))
+
             last_print_time = now
 
         # Build a fresh command each cycle
@@ -163,42 +187,46 @@ def main(use_imu=False):
         command.horizontal_velocity = np.array([forward_speed, side_speed])
         command.yaw_rate = 0.0
 
-        # Add pitch and roll correction
-        corrected_pitch = median_pitch - initial_pitch
-        corrected_roll = median_roll - initial_roll
-        #state.pitch = math.radians(corrected_pitch)
-        #state.roll = math.radians(roll)
 
-        #if corrected_pitch > 1.0 or corrected_pitch < -1.0:
-        #command.pitch = 0
+        # PID correction
         elapsed_pitch = time.time() - previous_time_pitch
-        #print(f"elapsed_pitch: {elapsed_pitch:.4f} seconds")
         #Calculate driven angles by PID controller
-        error_pitch = pid_pitch.compute(corrected_pitch , 0.015)
+        error_pitch = pid_pitch.compute(median_pitch , 0.015)
         previous_time_pitch = time.time()
-        #command.pitch = -math.radians(error_pitch* alpha)
+        command.pitch = -error_pitch* alpha
         #print(f"Error pitch: {error_pitch:.2f}, Commanded pitch: {command.pitch:.2f}")
         
-        #if corrected_roll > 1.0 or corrected_roll < -1.0:
-        #command.roll = 0
-        #command.roll = -math.radians(corrected_roll)
         elapsed_roll = time.time() - previous_time_roll
-        #print(f"elapsed_roll: {elapsed_roll:.4f} seconds")
         #Calculate driven angles by PID controller
-        error_roll = pid_roll.compute(corrected_roll , 0.015)
+        error_roll = pid_roll.compute(median_roll , 0.015)
         previous_time_roll = time.time()
-        #command.roll = math.radians(error_roll* alpha)
+        command.roll = error_roll* alpha
         #print(f"Error roll: {error_roll:.2f}, Commanded roll: {command.roll:.2f}")
         #print(f"Error pitch: {error_pitch:7.2f}, Commanded pitch: {command.pitch:7.2f}    Error roll: {error_roll:7.2f}, Commanded roll: {command.roll:7.2f}")   
-
-        #print(f"Corrected Pitch: {corrected_pitch:.2f}, Corrected Roll: {corrected_roll:.2f}")
-    
 
         # Run controller and update hardware
         #print(f"The command at run step: Pitch: {math.degrees(command.pitch):.2f}, Roll: {math.degrees(command.roll):.2f}")
         controller.run(state, command, disp)
         hardware_interface.set_actuator_postions(state.joint_angles)
 
+
+    ### Calculation for setting the kalman filter
+    pitch_var = float(np.var(raw_pitch_samples, ddof=1))
+    pitch_mean = float(np.mean(raw_pitch_samples))
+    roll_var = float(np.var(raw_roll_samples, ddof=1))
+    roll_mean = float(np.mean(raw_roll_samples))
+    pitch_rate_var = float(np.var(raw_pitch_rate_samples, ddof=1))
+    pitch_rate_mean = float(np.mean(raw_pitch_rate_samples))
+    roll_rate_var = float(np.var(raw_roll_rate_samples, ddof=1))
+    roll_rate_mean = float(np.mean(raw_roll_rate_samples))
+    print(f"Raw pitch variance: {pitch_var:.6f} (deg^2)")
+    print(f"Raw roll variance:  {roll_var:.6f} (deg^2)")
+    print(f"Raw pitch mean: {pitch_mean:.2f} degrees")
+    print(f"Raw roll mean:  {roll_mean:.2f} degrees")
+    print(f"Raw pitch rate variance: {pitch_rate_var:.6f} (rad^2/s^2)")
+    print(f"Raw roll rate variance:  {roll_rate_var:.6f} (rad^2/s^2)")
+    print(f"Raw pitch rate mean: {pitch_rate_mean:.2f} rad/s")
+    print(f"Raw roll rate mean:  {roll_rate_mean:.2f} rad/s")
 
 if __name__ == "__main__":
     main()
