@@ -17,6 +17,7 @@ class Command:
 
         self.hop_event = False
         self.trot_event = False
+        self.crawl_event = False
         self.activate_event = False
         self.dance_activate_event = False
         # Fales: dance triggered by controller

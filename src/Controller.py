@@ -34,7 +34,9 @@ class Controller:
 
         self.hop_transition_mapping = {BehaviorState.REST: BehaviorState.HOP, BehaviorState.HOP: BehaviorState.FINISHHOP, BehaviorState.FINISHHOP: BehaviorState.REST, BehaviorState.TROT: BehaviorState.HOP}
         self.trot_transition_mapping = {BehaviorState.REST: BehaviorState.TROT, BehaviorState.TROT: BehaviorState.REST, BehaviorState.HOP: BehaviorState.TROT, BehaviorState.FINISHHOP: BehaviorState.TROT}
+        self.crawl_transition_mapping = {BehaviorState.REST: BehaviorState.CRAWL, BehaviorState.CRAWL: BehaviorState.REST, BehaviorState.TROT: BehaviorState.CRAWL, BehaviorState.HOP: BehaviorState.CRAWL, BehaviorState.FINISHHOP: BehaviorState.CRAWL}
         self.activate_transition_mapping = {BehaviorState.DEACTIVATED: BehaviorState.REST, BehaviorState.REST: BehaviorState.DEACTIVATED}
+        self.active_gait = "trot"
 
     def dance_active(self,command):
         if command.dance_activate_event == True:
@@ -47,6 +49,23 @@ class Controller:
     def pseudo_dance_active(self, command):
         if command.pseudo_dance_event == True:
             self.dance_active_state = True
+
+    def set_gait_profile(self, profile):
+        if profile == self.active_gait:
+            return
+        if profile == "crawl":
+            self.config.contact_phases = self.config.crawl_contact_phases
+            self.config.overlap_time = self.config.crawl_overlap_time
+            self.config.swing_time = self.config.crawl_swing_time
+            self.config.z_clearance = self.config.crawl_z_clearance
+            self.config.delta_y = self.config.crawl_delta_y
+        else:
+            self.config.contact_phases = self.config.trot_contact_phases
+            self.config.overlap_time = self.config.trot_overlap_time
+            self.config.swing_time = self.config.trot_swing_time
+            self.config.z_clearance = self.config.trot_z_clearance
+            self.config.delta_y = self.config.trot_delta_y
+        self.active_gait = profile
 
     def step_gait(self, state, command):
         """Calculate the desired foot locations for the next timestep
@@ -91,12 +110,22 @@ class Controller:
             state.behavior_state = self.activate_transition_mapping[state.behavior_state]
         elif command.trot_event:
             state.behavior_state = self.trot_transition_mapping[state.behavior_state]
+        elif command.crawl_event:
+            state.behavior_state = self.crawl_transition_mapping[state.behavior_state]
         elif command.hop_event:
             state.behavior_state = self.hop_transition_mapping[state.behavior_state]
 
-        disp.show_state(state.behavior_state)
-        self.dance_active(command)
-        self.pseudo_dance_active(command)
+        if state.behavior_state == BehaviorState.CRAWL:
+            disp.show_state(BehaviorState.TROT)
+        else:    
+            disp.show_state(state.behavior_state)
+
+        if state.behavior_state == BehaviorState.CRAWL:
+            self.set_gait_profile("crawl")
+        elif state.behavior_state == BehaviorState.TROT:
+            self.set_gait_profile("trot")
+        elif state.behavior_state == BehaviorState.REST:
+            self.set_gait_profile("trot")  # Reset to trot defaults when resting
 
         if state.behavior_state == BehaviorState.TROT:
             state.foot_locations, contact_modes = self.step_gait(
@@ -118,6 +147,35 @@ class Controller:
             #pitch = math.radians(state.pitch)
             #print(f"State pitch at body tilt cal1: {state.pitch:.2f}")
             correction_factor = 1.2 # 0.8
+            max_tilt = 0.4
+            roll_compensation = correction_factor * np.clip(-roll, -max_tilt, max_tilt)
+            pitch_compensation = correction_factor * np.clip(-pitch, -max_tilt, max_tilt)
+            rmat = euler2mat(roll_compensation, pitch_compensation, 0)
+
+            rotated_foot_locations = rmat.T @ rotated_foot_locations
+
+            state.joint_angles = self.inverse_kinematics(
+                rotated_foot_locations, self.config
+            )
+
+        elif state.behavior_state == BehaviorState.CRAWL:
+            command.height = command.height + self.config.crawl_height_delta
+            state.foot_locations, contact_modes = self.step_gait(
+                state,
+                command,
+            )
+
+            # Apply the desired body rotation
+            rotated_foot_locations = (
+                euler2mat(
+                    command.roll, command.pitch, 0.0
+                )
+                @ state.foot_locations
+            )
+
+            # Construct foot rotation matrix to compensate for body tilt
+            (roll, pitch, yaw) = quat2euler(state.quat_orientation)
+            correction_factor = 1.2
             max_tilt = 0.4
             roll_compensation = correction_factor * np.clip(-roll, -max_tilt, max_tilt)
             pitch_compensation = correction_factor * np.clip(-pitch, -max_tilt, max_tilt)

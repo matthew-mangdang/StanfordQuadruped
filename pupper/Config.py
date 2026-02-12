@@ -80,6 +80,25 @@ class Configuration:
             0.15  # duration of the phase when only two feet are on the ground
         )
 
+        # Trot defaults (used as baseline when switching gait profiles)
+        self.trot_contact_phases = self.contact_phases.copy()
+        self.trot_overlap_time = self.overlap_time
+        self.trot_swing_time = self.swing_time
+        self.trot_z_clearance = self.z_clearance
+        self.trot_delta_x = self.delta_x
+        self.trot_delta_y = self.delta_y
+
+        # Crawl gait (one leg swings per phase)
+        self.crawl_contact_phases = np.array(
+            [[0, 1, 1, 1], [1, 0, 1, 1], [1, 1, 0, 1], [1, 1, 1, 0]]
+        )
+        self.crawl_overlap_time = 0.10
+        self.crawl_swing_time = 2.5
+        self.crawl_z_clearance = 0.04
+        self.crawl_height_delta = -0.0
+        self.crawl_delta_y = 0.09
+
+        print(f"overlap_time, swing_time, z_clearance, height_delta, delta_y: {self.overlap_time}, {self.swing_time}, {self.z_clearance}, {self.crawl_height_delta}, {self.crawl_delta_y}")
         ######################## GEOMETRY ######################
         self.LEG_FB = 0.10  # front-back distance from center line to leg axis
         self.LEG_LR = 0.04  # left-right distance from center line to leg plane
