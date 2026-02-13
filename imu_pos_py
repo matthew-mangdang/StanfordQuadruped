@@ -14,7 +14,7 @@ from src.Imu_Esp32 import IIRLowPassFilter
 from src.Imu_Esp32 import first_order_IIRLowPassFilter
 from src.Imu_Esp32 import PIDController
 from src.Imu_Esp32 import KalmanFilter
-from src.Utilities import start_buffer, initialize_stance  
+from src.Utilities import start_buffer, initialize_stance, save_velocity_plot, save_acceleration_plot
 
 from MangDang.mini_pupper.ESP32Interface import ESP32Interface
 
@@ -48,17 +48,18 @@ def main(use_imu=False):
     # Set up esp32 interface
     esp32 = ESP32Interface()
     imu_handler = IMU(esp32)
-    pitch_offset, roll_offset = imu_handler.get_orientation_offset(50, 2.74, 1.51) ### Get offset for pitch and roll at zero
-
+    a_offset = imu_handler.get_a_offset(50, [0.03, 0.04, -1.05])
+    v_plot = []
+    a_plot = []
 
     ### Movement handler - user input
     gait_choice = "trot"  # "trot" or "crawl"
 
     # Choose forward speed (m/s). Keep within config.max_x_velocity.
-    forward_speed = min(0.07, config.max_x_velocity)
-    side_speed = min (0.00, config.max_y_velocity)
+    forward_speed = min(0.09, config.max_x_velocity)
+    side_speed = min (0.03, config.max_y_velocity)
     run_time = 50.0 # seconds until auto-stop for safety
-    trot_time = 2.0
+    trot_time = 10.0
     crawl_time = 20.0
     if gait_choice == "trot":
         print("Configured to trot gait.")
@@ -75,6 +76,19 @@ def main(use_imu=False):
         if now - last_loop < config.dt:
             continue
         last_loop = now
+
+        a_raw = imu_handler.get_accelerometer()
+        a_calibrated = a_raw - a_offset
+        v = imu_handler.integrate_velocity(a_calibrated, config.dt) 
+        a_plot.append(a_calibrated[0])
+
+        if now - last_print_time > 0.15:
+            v_plot.append(v[0]+ 0.0014*0.15)
+            
+            print(f"Calibrated acceleration: {[f'{x:.3f}' for x in a_calibrated]}")
+            print(f"Velocity: {v}")
+            last_print_time = now
+
 
         # Protection: Return to default position after run_time seconds
         if now - initialize_time > trot_time:
@@ -93,7 +107,9 @@ def main(use_imu=False):
 
         # Build a fresh command each cycle
         command = Command()
-
+        # IMU orientation (optional) Currently manual set to no rotation
+        quat_orientation = np.array([1.0, 0.0, 0.0, 0.0])
+        state.quat_orientation = quat_orientation
         # One-time trot toggle from REST to TROT
         if (gait_choice == "trot") and state.behavior_state == BehaviorState.REST:
             command.trot_event = True
@@ -103,68 +119,16 @@ def main(use_imu=False):
             command.crawl_event = True
             print(f"Sending crawl_event {command.crawl_event} -> robot should enter crawl gait.")
 
-        # After both toggles, stay in trot and just command velocity
-        # IMU orientation (optional) Currently manual set to no rotation
-        quat_orientation = np.array([1.0, 0.0, 0.0, 0.0])
-        state.quat_orientation = quat_orientation
-
-        # Constant forward command, no lateral or turning motion
         command.horizontal_velocity = np.array([forward_speed, side_speed])
+
 
         # Run controller and update hardware
         controller.run(state, command, disp)
         hardware_interface.set_actuator_postions(state.joint_angles)
 
-    crawl_time_count = time.time()
-    forward_speed = min(0.03, config.max_x_velocity)
-    gait_choice = "crawl"
-    print("Switching to crawl gait.")
-
-    while True:
-        now = time.time()
-        if now - last_loop < config.dt:
-            continue
-        last_loop = now
-
-        # Protection: Return to default position after run_time seconds
-        if now - crawl_time_count > crawl_time:
-            print(f"{crawl_time} seconds elapsed - returning robot to REST position")
-            command = Command()
-            if state.behavior_state == BehaviorState.TROT:
-                command.trot_event = True  # Toggle back to REST
-                command.horizontal_velocity = np.array([0.0, 0.0])
-            if state.behavior_state == BehaviorState.CRAWL:
-                command.crawl_event = True  # Toggle back to REST
-                command.horizontal_velocity = np.array([0.0, 0.0])
-            controller.run(state, command, disp)
-            hardware_interface.set_actuator_postions(state.joint_angles)
-            time.sleep(0.5)  # Give time to settle
-            break
-
-        # Build a fresh command each cycle
-        command = Command()
-
-        # One-time trot toggle from REST to TROT
-        if (gait_choice == "trot") and state.behavior_state == BehaviorState.REST:
-            command.trot_event = True
-            print(f"Sending trot_event {command.trot_event} -> robot should enter trot gait.")
-
-        if (gait_choice == "crawl") and state.behavior_state == BehaviorState.REST:
-            command.crawl_event = True
-            print(f"Sending crawl_event {command.crawl_event} -> robot should enter crawl gait.")
-
-        # After both toggles, stay in trot and just command velocity
-        # IMU orientation (optional) Currently manual set to no rotation
-        quat_orientation = np.array([1.0, 0.0, 0.0, 0.0])
-        state.quat_orientation = quat_orientation
-
-        # Constant forward command, no lateral or turning motion
-        command.horizontal_velocity = np.array([forward_speed, side_speed])
-        command.pitch = 0
-
-        # Run controller and update hardware
-        controller.run(state, command, disp)
-        hardware_interface.set_actuator_postions(state.joint_angles)
+    # Save velocity plot when script exits
+    save_velocity_plot(v_plot, filename="velocity_plot_corrected_trotting.png")
+    save_acceleration_plot(a_plot, filename="acceleration_trotting_hit.png")
 
 
 if __name__ == "__main__":

@@ -104,7 +104,7 @@ class Configuration:
         self.crawl_front_z_clearance = 0.03 
         self.crawl_rear_z_clearance = 0.05  
         self.crawl_height_delta = 0.0
-        self.crawl_delta_y = 0.050  # 0.050
+        self.crawl_delta_y = 0.070  # 0.050
         self.crawl_delta_x = 0.059
         self.crawl_alpha = 0.7
 

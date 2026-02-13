@@ -12,12 +12,15 @@ class IMU:
     def __init__(self, esp32):
     
         self.esp32 = esp32
+        self.v = np.array([0.0, 0.0, 0.0])  # [vx, vy, vz]
+        self.p = np.array([0.0, 0.0, 0.0])  # [px, py, pz]
+        self.last_a = np.array([0.0, 0.0, 0.0])
 
     def get_raw_data(self):
         self.imu_raw = self.esp32.imu_get_data()
         return self.imu_raw
 
-    def get_offset (self, num_samples=100, pitch_offset=None, roll_offset=None):
+    def get_orientation_offset (self, num_samples=100, pitch_offset=None, roll_offset=None):
         """
         Collects a number of samples and computes the mean pitch and roll to use as offsets.
         Can also manual set the offset to skip this step.
@@ -43,6 +46,44 @@ class IMU:
         print(f"Pitch offset: {pitch_offset:.2f} degrees, Roll offset: {roll_offset:.2f} degrees")
         return pitch_offset, roll_offset
 
+    def get_a_offset (self, num_samples=100, a_offset=None):
+        """
+        Collects a number of samples and computes the mean accelerometer to use as offsets.
+        Can also manual set the offset to skip this step.
+        """
+        if a_offset is not None:
+            print(f"Using provided a_offset: {a_offset}")
+            return a_offset
+
+        ax_samples = []
+        ay_samples = []
+        az_samples = []
+        print(f"Start getting imu offset for accelerometer, keep the robot still...")
+
+        for _ in range(num_samples):
+            data = self.get_raw_data()
+            ax_samples.append(data['ax'])
+            ay_samples.append(data['ay'])
+            az_samples.append(data['az'])
+            time.sleep(0.15)  # small delay between samples
+
+        ax_offset = np.mean(ax_samples)
+        ay_offset = np.mean(ay_samples)
+        az_offset = np.mean(az_samples)
+        print(f"Retrieved accelerometer offset.")
+        print(f"Accel X offset: {ax_offset:.2f}, Accel Y offset: {ay_offset:.2f}, Accel Z offset: {az_offset:.2f}")
+
+        return [ax_offset, ay_offset, az_offset]
+           
+    def get_accelerometer(self):
+        """
+        Get raw accelerometer data in m/s^2
+        """
+        ax = self.esp32.imu_get_data()['ax']
+        ay = self.esp32.imu_get_data()['ay']
+        az = self.esp32.imu_get_data()['az']
+        return np.array([ax, ay, az])
+        
     def get_orientation(self, data):
         """
         Gets pitch and roll in degrees
@@ -58,6 +99,71 @@ class IMU:
         pitch_deg = math.degrees(math.atan(ay / math.sqrt(ax * ax + az * az)))
 
         return pitch_deg, roll_deg
+
+    def integrate_velocity(self, a_calibrated, dt):
+        """
+        Simple velocity integration from calibrated acceleration.
+        
+        Args:
+            a_calibrated: Calibrated acceleration [ax, ay, az] (m/s²)
+            dt: Time step (seconds)
+        
+        Returns:
+            velocity: [vx, vy, vz] (m/s)
+        
+        Note: This just integrates without bias correction (will drift).
+              For long-term use, call reset_velocity() periodically.
+        """
+        self.v = self.v + a_calibrated * dt
+        return self.v
+    
+    def integrate_position(self, a_calibrated, dt):
+        """
+        Double integration to get position from acceleration.
+        Args:
+            a_calibrated: Calibrated acceleration [ax, ay, az] (m/s²)
+            dt: Time step (seconds)
+        
+        Returns:
+            position: [px, py, pz] (m)
+
+        """
+        # Update velocity first
+        self.v = self.v + a_calibrated * dt
+        
+        # Update position: p = p + v * dt + 0.5 * a * dt^2
+        self.p = self.p + self.v * dt + 0.5 * a_calibrated * dt * dt
+        
+        return self.p
+    
+    def reset_velocity(self, v=None):
+        """
+        Reset velocity (e.g., when stance detected or motion stops).
+        
+        Args:
+            v: New velocity (default [0, 0, 0])
+        """
+        if v is None:
+            self.v = np.array([0.0, 0.0, 0.0])
+        else:
+            self.v = np.array(v)
+    
+    def reset_position(self, p=None):
+        """
+        Reset position.
+        
+        Args:
+            p: New position (default [0, 0, 0])
+        """
+        if p is None:
+            self.p = np.array([0.0, 0.0, 0.0])
+        else:
+            self.p = np.array(p)
+    
+    def reset_state(self):
+        """Reset both velocity and position to zero."""
+        self.v = np.array([0.0, 0.0, 0.0])
+        self.p = np.array([0.0, 0.0, 0.0])
 
 
 class IIRLowPassFilter:
