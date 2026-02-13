@@ -32,8 +32,8 @@ class Controller:
         self.swing_controller = SwingController(self.config)
         self.stance_controller = StanceController(self.config)
 
-        self.hop_transition_mapping = {BehaviorState.REST: BehaviorState.HOP, BehaviorState.HOP: BehaviorState.FINISHHOP, BehaviorState.FINISHHOP: BehaviorState.REST, BehaviorState.TROT: BehaviorState.HOP}
-        self.trot_transition_mapping = {BehaviorState.REST: BehaviorState.TROT, BehaviorState.TROT: BehaviorState.REST, BehaviorState.HOP: BehaviorState.TROT, BehaviorState.FINISHHOP: BehaviorState.TROT}
+        self.hop_transition_mapping = {BehaviorState.REST: BehaviorState.HOP, BehaviorState.HOP: BehaviorState.FINISHHOP, BehaviorState.FINISHHOP: BehaviorState.REST, BehaviorState.TROT: BehaviorState.HOP, BehaviorState.CRAWL: BehaviorState.HOP}
+        self.trot_transition_mapping = {BehaviorState.REST: BehaviorState.TROT, BehaviorState.TROT: BehaviorState.REST, BehaviorState.HOP: BehaviorState.TROT, BehaviorState.FINISHHOP: BehaviorState.TROT, BehaviorState.CRAWL: BehaviorState.TROT}
         self.crawl_transition_mapping = {BehaviorState.REST: BehaviorState.CRAWL, BehaviorState.CRAWL: BehaviorState.REST, BehaviorState.TROT: BehaviorState.CRAWL, BehaviorState.HOP: BehaviorState.CRAWL, BehaviorState.FINISHHOP: BehaviorState.CRAWL}
         self.activate_transition_mapping = {BehaviorState.DEACTIVATED: BehaviorState.REST, BehaviorState.REST: BehaviorState.DEACTIVATED}
         self.active_gait = "trot"
@@ -58,13 +58,21 @@ class Controller:
             self.config.overlap_time = self.config.crawl_overlap_time
             self.config.swing_time = self.config.crawl_swing_time
             self.config.z_clearance = self.config.crawl_z_clearance
+            self.config.front_z_clearance = self.config.crawl_front_z_clearance
+            self.config.rear_z_clearance = self.config.crawl_rear_z_clearance
             self.config.delta_y = self.config.crawl_delta_y
+            self.config.delta_x = self.config.crawl_delta_x
+            self.config.alpha = self.config.crawl_alpha
         else:
             self.config.contact_phases = self.config.trot_contact_phases
             self.config.overlap_time = self.config.trot_overlap_time
             self.config.swing_time = self.config.trot_swing_time
             self.config.z_clearance = self.config.trot_z_clearance
+            self.config.front_z_clearance = self.config.trot_front_z_clearance
+            self.config.rear_z_clearance = self.config.trot_rear_z_clearance
             self.config.delta_y = self.config.trot_delta_y
+            self.config.delta_x = self.config.trot_delta_x
+            self.config.alpha = self.config.trot_alpha
         self.active_gait = profile
 
     def step_gait(self, state, command):
@@ -146,7 +154,7 @@ class Controller:
             #roll = math.radians(state.roll) 
             #pitch = math.radians(state.pitch)
             #print(f"State pitch at body tilt cal1: {state.pitch:.2f}")
-            correction_factor = 1.2 # 0.8
+            correction_factor = 0.8 # 0.8
             max_tilt = 0.4
             roll_compensation = correction_factor * np.clip(-roll, -max_tilt, max_tilt)
             pitch_compensation = correction_factor * np.clip(-pitch, -max_tilt, max_tilt)
@@ -159,7 +167,7 @@ class Controller:
             )
 
         elif state.behavior_state == BehaviorState.CRAWL:
-            command.height = command.height + self.config.crawl_height_delta
+            #command.height = command.height + self.config.crawl_height_delta
             state.foot_locations, contact_modes = self.step_gait(
                 state,
                 command,
@@ -175,7 +183,7 @@ class Controller:
 
             # Construct foot rotation matrix to compensate for body tilt
             (roll, pitch, yaw) = quat2euler(state.quat_orientation)
-            correction_factor = 1.2
+            correction_factor = 0.8
             max_tilt = 0.4
             roll_compensation = correction_factor * np.clip(-roll, -max_tilt, max_tilt)
             pitch_compensation = correction_factor * np.clip(-pitch, -max_tilt, max_tilt)

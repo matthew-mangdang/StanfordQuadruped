@@ -5,7 +5,7 @@ from collections import deque
 from src.Controller import Controller
 from src.State import State, BehaviorState
 from MangDang.mini_pupper.HardwareInterface import HardwareInterface
-from pupper.Config import Configuration
+from pupper.Config_mp2 import Configuration
 from pupper.Kinematics import four_legs_inverse_kinematics
 from MangDang.mini_pupper.display import Display
 from src.Command import Command
@@ -52,26 +52,24 @@ def main(use_imu=False):
 
 
     ### Movement handler - user input
-    # Flag on enabling troting gait.
-    trot_enable = True
-    crawl_enable = False
+    gait_choice = "trot"  # "trot" or "crawl"
 
     # Choose forward speed (m/s). Keep within config.max_x_velocity.
-    forward_speed = min(0.05, config.max_x_velocity)
-    side_speed = min (0.02, config.max_y_velocity)
-    #forward_speed = 0.0
-    #side_speed = 0.0
-    run_time = 5.0 # seconds until auto-stop for safety
-    if trot_enable:
+    forward_speed = min(0.07, config.max_x_velocity)
+    side_speed = min (0.00, config.max_y_velocity)
+    run_time = 50.0 # seconds until auto-stop for safety
+    trot_time = 10.0
+    crawl_time = 2.0
+    if gait_choice == "trot":
         print("Configured to trot gait.")
-    elif crawl_enable:
+    elif gait_choice == "crawl":
         print("Configured to crawl gait.")
     print("Script started and start trot}")
     print(f"Using forward speed: {forward_speed} m/s")
     print(f"Using side speed: {side_speed} m/s")
     print(f"Auto-stop time set to: {run_time} seconds")
 
-
+    # Trot loop
     while True:
         now = time.time()
         if now - last_loop < config.dt:
@@ -79,8 +77,8 @@ def main(use_imu=False):
         last_loop = now
 
         # Protection: Return to default position after run_time seconds
-        if now - initialize_time > run_time:
-            print(f"{run_time} seconds elapsed - returning robot to REST position")
+        if now - initialize_time > trot_time:
+            print(f"{trot_time} seconds elapsed - returning robot to REST position")
             command = Command()
             if state.behavior_state == BehaviorState.TROT:
                 command.trot_event = True  # Toggle back to REST
@@ -93,16 +91,15 @@ def main(use_imu=False):
             time.sleep(0.5)  # Give time to settle
             break
 
-
         # Build a fresh command each cycle
         command = Command()
 
         # One-time trot toggle from REST to TROT
-        if (trot_enable) and state.behavior_state == BehaviorState.REST:
+        if (gait_choice == "trot") and state.behavior_state == BehaviorState.REST:
             command.trot_event = True
             print(f"Sending trot_event {command.trot_event} -> robot should enter trot gait.")
 
-        if (crawl_enable) and state.behavior_state == BehaviorState.REST:
+        if (gait_choice == "crawl") and state.behavior_state == BehaviorState.REST:
             command.crawl_event = True
             print(f"Sending crawl_event {command.crawl_event} -> robot should enter crawl gait.")
 
@@ -113,10 +110,59 @@ def main(use_imu=False):
 
         # Constant forward command, no lateral or turning motion
         command.horizontal_velocity = np.array([forward_speed, side_speed])
-        command.yaw_rate = 0.0
 
         # Run controller and update hardware
-        #print(f"The command at run step: Pitch: {math.degrees(command.pitch):.2f}, Roll: {math.degrees(command.roll):.2f}")
+        controller.run(state, command, disp)
+        hardware_interface.set_actuator_postions(state.joint_angles)
+
+    crawl_time_count = time.time()
+    forward_speed = min(0.03, config.max_x_velocity)
+    gait_choice = "crawl"
+    print("Switching to crawl gait.")
+
+    while True:
+        now = time.time()
+        if now - last_loop < config.dt:
+            continue
+        last_loop = now
+
+        # Protection: Return to default position after run_time seconds
+        if now - crawl_time_count > crawl_time:
+            print(f"{crawl_time} seconds elapsed - returning robot to REST position")
+            command = Command()
+            if state.behavior_state == BehaviorState.TROT:
+                command.trot_event = True  # Toggle back to REST
+                command.horizontal_velocity = np.array([0.0, 0.0])
+            if state.behavior_state == BehaviorState.CRAWL:
+                command.crawl_event = True  # Toggle back to REST
+                command.horizontal_velocity = np.array([0.0, 0.0])
+            controller.run(state, command, disp)
+            hardware_interface.set_actuator_postions(state.joint_angles)
+            time.sleep(0.5)  # Give time to settle
+            break
+
+        # Build a fresh command each cycle
+        command = Command()
+
+        # One-time trot toggle from REST to TROT
+        if (gait_choice == "trot") and state.behavior_state == BehaviorState.REST:
+            command.trot_event = True
+            print(f"Sending trot_event {command.trot_event} -> robot should enter trot gait.")
+
+        if (gait_choice == "crawl") and state.behavior_state == BehaviorState.REST:
+            command.crawl_event = True
+            print(f"Sending crawl_event {command.crawl_event} -> robot should enter crawl gait.")
+
+        # After both toggles, stay in trot and just command velocity
+        # IMU orientation (optional) Currently manual set to no rotation
+        quat_orientation = np.array([1.0, 0.0, 0.0, 0.0])
+        state.quat_orientation = quat_orientation
+
+        # Constant forward command, no lateral or turning motion
+        command.horizontal_velocity = np.array([forward_speed, side_speed])
+        command.pitch = 0
+
+        # Run controller and update hardware
         controller.run(state, command, disp)
         hardware_interface.set_actuator_postions(state.joint_angles)
 

@@ -26,5 +26,5 @@ def initialize_stance(initial_command, config):
     state_foot_locations = (
     config.default_stance + np.array([0.0, 0.0, initial_command.height])[:, np.newaxis]
     )
-
+    print(f"Initialized to default stance with height: {state_height} m and foot locations:\n{state_foot_locations}")
     return state_height, state_foot_locations
