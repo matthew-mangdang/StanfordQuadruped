@@ -15,6 +15,7 @@ from src.Imu_Esp32 import first_order_IIRLowPassFilter
 from src.Imu_Esp32 import PIDController
 from src.Imu_Esp32 import KalmanFilter
 from src.Utilities import start_buffer, initialize_stance, save_velocity_plot, save_acceleration_plot
+from src.filter import butter_filter_live
 
 from MangDang.mini_pupper.ESP32Interface import ESP32Interface
 
@@ -51,13 +52,16 @@ def main(use_imu=False):
     a_offset = imu_handler.get_a_offset(50, [0.03, 0.04, -1.05])
     v_plot = []
     a_plot = []
+    a_filtered_plot = []
+
+    b_filter = butter_filter_live(cutoff_freq=10.0, dt=config.dt, order=1)  # Real-time Butterworth filter for acceleration, dt 0.01
 
     ### Movement handler - user input
     gait_choice = "trot"  # "trot" or "crawl"
 
     # Choose forward speed (m/s). Keep within config.max_x_velocity.
     forward_speed = min(0.09, config.max_x_velocity)
-    side_speed = min (0.03, config.max_y_velocity)
+    side_speed = min (0.0, config.max_y_velocity)
     run_time = 50.0 # seconds until auto-stop for safety
     trot_time = 10.0
     crawl_time = 20.0
@@ -79,16 +83,21 @@ def main(use_imu=False):
 
         a_raw = imu_handler.get_accelerometer()
         a_calibrated = a_raw - a_offset
-        v = imu_handler.integrate_velocity(a_calibrated, config.dt) 
+        a_filtered = b_filter.apply_filter(a_calibrated[0])
+        #v = imu_handler.integrate_velocity(a_calibrated, config.dt) 
         a_plot.append(a_calibrated[0])
-
+        a_filtered_plot.append(a_filtered)
+        """
         if now - last_print_time > 0.15:
-            v_plot.append(v[0]+ 0.0014*0.15)
+            #v_plot.append(v[0]+ 0.0014*0.15)
             
             print(f"Calibrated acceleration: {[f'{x:.3f}' for x in a_calibrated]}")
-            print(f"Velocity: {v}")
+            print(f"Filtered acceleration: {a_filtered}")
             last_print_time = now
+        """
 
+        if a_filtered > 0.2:  # Threshold for detecting a hit (tune as needed)
+            print(f"Detected hit with filtered acceleration: {a_filtered}")
 
         # Protection: Return to default position after run_time seconds
         if now - initialize_time > trot_time:
@@ -127,8 +136,10 @@ def main(use_imu=False):
         hardware_interface.set_actuator_postions(state.joint_angles)
 
     # Save velocity plot when script exits
-    save_velocity_plot(v_plot, filename="velocity_plot_corrected_trotting.png")
-    save_acceleration_plot(a_plot, filename="acceleration_trotting_hit.png")
+    #save_velocity_plot(v_plot, filename="velocity_plot_corrected_trotting.png")
+    save_acceleration_plot(a_plot, filename="ax_trotting_raw.png")
+    save_acceleration_plot(a_filtered_plot, filename="ax_trotting_filtered.png")
+    np.save("acceleration_trotting_hit.npy", a_plot)
 
 
 if __name__ == "__main__":
