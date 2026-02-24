@@ -71,7 +71,7 @@ class IMU:
         ay_offset = np.mean(ay_samples)
         az_offset = np.mean(az_samples)
         print(f"Retrieved accelerometer offset.")
-        print(f"Accel X offset: {ax_offset:.2f}, Accel Y offset: {ay_offset:.2f}, Accel Z offset: {az_offset:.2f}")
+        print(f"Accel X offset: {ax_offset:.3f}, Accel Y offset: {ay_offset:.3f}, Accel Z offset: {az_offset:.3f}")
 
         return [ax_offset, ay_offset, az_offset]
            

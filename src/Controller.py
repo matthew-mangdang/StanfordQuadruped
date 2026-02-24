@@ -63,6 +63,7 @@ class Controller:
             self.config.delta_y = self.config.crawl_delta_y
             self.config.delta_x = self.config.crawl_delta_x
             self.config.alpha = self.config.crawl_alpha
+            self.config.x_shift = self.config.crawl_x_shift
         else:
             self.config.contact_phases = self.config.trot_contact_phases
             self.config.overlap_time = self.config.trot_overlap_time
@@ -73,6 +74,7 @@ class Controller:
             self.config.delta_y = self.config.trot_delta_y
             self.config.delta_x = self.config.trot_delta_x
             self.config.alpha = self.config.trot_alpha
+            self.config.x_shift = self.config.trot_x_shift
         self.active_gait = profile
 
     def step_gait(self, state, command):
@@ -114,6 +116,13 @@ class Controller:
         """
 
         ########## Update operating state based on command ######
+
+        # Update dance mode flags based on incoming command
+        # - dance_active() toggles when triggered from the controller/joystick
+        # - pseudo_dance_active() forces dance mode when running scripts
+        self.dance_active(command)
+        self.pseudo_dance_active(command)
+
         if command.activate_event:
             state.behavior_state = self.activate_transition_mapping[state.behavior_state]
         elif command.trot_event:
@@ -167,18 +176,48 @@ class Controller:
             )
 
         elif state.behavior_state == BehaviorState.CRAWL:
-            #command.height = command.height + self.config.crawl_height_delta
+            # Set up offsets based on leg swinging (phase)
+            phase = self.gait_controller.phase_index(state.ticks)
+            body_x_offset = 0.0
+            body_z_offset = 0.0
+
             state.foot_locations, contact_modes = self.step_gait(
                 state,
                 command,
             )
+
+            foot_locations_phase = state.foot_locations.copy()  # Create a copy to modify for phase-specific adjustments
+            if phase == 0:
+                # Front-right leg swing: pitch down (front) and shift CoM back
+                command.pitch = self.config.crawl_pitch_factor
+                command.roll = 0.0
+                foot_locations_phase[:,2:4] += np.array([self.config.crawl_rear_x_shift, 0, self.config.crawl_rear_z_offset])[:, np.newaxis]
+            elif phase == 1:
+                # Front-left leg swing: similar treatment as phase 0
+                command.pitch = self.config.crawl_pitch_factor
+                command.roll = 0.0
+                foot_locations_phase[:,2:4] += np.array([self.config.crawl_rear_x_shift, 0, self.config.crawl_rear_z_offset])[:, np.newaxis]
+            elif phase == 2:
+                # Rear-right leg swing: pitch up (rear) and optionally bias CoM
+                #command.pitch = -self.config.crawl_pitch_factor
+                command.roll = 0.0
+                foot_locations_phase[:,0:2] += np.array([self.config.crawl_front_x_shift, 0, self.config.crawl_front_z_offset])[:, np.newaxis]
+            else:
+                # Rear-left leg swing
+                #command.pitch = -self.config.crawl_pitch_factor
+                command.roll = 0.0
+                foot_locations_phase[:,0:2] += np.array([self.config.crawl_front_x_shift, 0, self.config.crawl_front_z_offset])[:, np.newaxis]
+
+            #body_offset = np.array([body_x_offset, 0.0, body_z_offset])[:, np.newaxis]
+            
 
             # Apply the desired body rotation
             rotated_foot_locations = (
                 euler2mat(
                     command.roll, command.pitch, 0.0
                 )
-                @ state.foot_locations
+                #@ state.foot_locations
+                @ foot_locations_phase
             )
 
             # Construct foot rotation matrix to compensate for body tilt

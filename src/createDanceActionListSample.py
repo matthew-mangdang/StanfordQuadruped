@@ -67,7 +67,9 @@
 from src.MovementGroup import MovementGroups
 
 Move = MovementGroups()
-Move.gait_uni(0.25,0)
+Move.move_right()
+#Move.obstacle_climb_simple()
+Move.stop()
 """
 # Level 1: movements without input parameters
 Move.look_right()

@@ -592,6 +592,78 @@ class MovementGroups:
         dance_scheme.setAllSequence(dance_all_legs,dance_speed,dance_attitude)
         self.MovementLib.append(dance_scheme)      # append dance
         return self.MovementLib
+
+    def obstacle_climb_simple(self, step_x = 0.01, lift_ht = 0.01, time_uni = 2, time_acc = 2):
+        """Simple "climb" dance: rear push, neutral, front push.
+
+        Phase 0: neutral stand.
+        Phase 1: bias weight to rear legs and move front legs forward (body pitches up).
+        Phase 2: bias weight to front legs and move rear legs forward (back legs "climb" up).
+
+        This is intended as a choreographed motion, not a continuous gait.
+        """
+        if time_uni <= 0:
+            time_uni = self.dt
+        if time_acc <= 0:
+            time_acc = self.dt
+
+        # Interpolation settings
+        interval_uni = int(time_uni / self.dt)
+        interval_acc = int(time_acc / self.dt)
+
+        # Clamp step and lift for safety
+        step_x_mod = self.cap_limit(0.05, -0.05, step_x)
+        lift_ht_mod = self.cap_limit(self.legliftcap, 0, lift_ht)
+
+        dance_scheme = Movements('obstacle_climb_simple')
+
+        # Base stance (same as default_stand, expanded per leg)
+        fr_neutral = [ 0.06,-0.05,-0.07]  # front right
+        fl_neutral = [ 0.06, 0.05,-0.07]  # front left
+        rr_neutral = [-0.06,-0.05,-0.07]  # rear right
+        rl_neutral = [-0.06, 0.05,-0.07]  # rear left
+
+        # Phase 0: neutral
+        fr_p0 = fr_neutral
+        fl_p0 = fl_neutral
+        rr_p0 = rr_neutral
+        rl_p0 = rl_neutral
+
+        # Phase 1: rear push, front "reach" forward
+        fr_p1 = [fr_neutral[0] + step_x_mod, fr_neutral[1], fr_neutral[2] + lift_ht_mod/2.0] #xyz
+        fl_p1 = [fl_neutral[0] + step_x_mod, fl_neutral[1], fl_neutral[2] + lift_ht_mod/2.0]
+        rr_p1 = [rr_neutral[0], rr_neutral[1], rr_neutral[2] - lift_ht_mod]
+        rl_p1 = [rl_neutral[0], rl_neutral[1], rl_neutral[2] - lift_ht_mod]
+
+        # Phase 2: front "lift", rear "climb" forward
+        fr_p2 = [fr_neutral[0] + step_x_mod, fr_neutral[1], fr_neutral[2] + lift_ht_mod]
+        fl_p2 = [fl_neutral[0] + step_x_mod, fl_neutral[1], fl_neutral[2] + lift_ht_mod]
+        rr_p2 = [rr_neutral[0] + step_x_mod/2.0, rr_neutral[1], rr_neutral[2]]
+        rl_p2 = [rl_neutral[0] + step_x_mod/2.0, rl_neutral[1], rl_neutral[2]]
+
+        # Assemble per-leg keyframes: each leg has [phase0, phase1, phase2]
+        dance_all_legs = [
+            [fr_p0, fr_p1, fr_p2],  # leg 1 front right
+            [fl_p0, fl_p1, fl_p2],  # leg 2 front left
+            [rr_p0, rr_p1, rr_p2],  # leg 3 rear right
+            [rl_p0, rl_p1, rl_p2],  # leg 4 rear left
+        ]
+
+        # No commanded body translation/yaw; we use pitch to accent the motion
+        dance_speed = [[0, 0, 0]]
+
+        # Attitude keyframes (roll, pitch, yaw in degrees)
+        # 0: neutral, 1: pitch up (rear push), 2: pitch slightly back toward neutral
+        dance_attitude = [
+            [0, 0, 0]  # partially relax pitch as rear "climbs" forward
+        ]
+
+        dance_scheme.setTransitionTic(interval_acc)
+        dance_scheme.setInterpolationNumber(interval_uni)
+        dance_scheme.setAllSequence(dance_all_legs, dance_speed, dance_attitude)
+        self.MovementLib.append(dance_scheme)
+        print(f"Created dance scheme with legs: {dance_all_legs}")
+        return self.MovementLib
     
     def rotate(self,angle = 1):
         """ This movement enables the pupper to rotate around its body center in the x-y plane.

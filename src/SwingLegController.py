@@ -8,11 +8,12 @@ class SwingController:
     def raibert_touchdown_location(
         self, leg_index, command
     ):
+        print(f"The alpha inside swinglegcontroller is {self.config.alpha}")
         delta_p_2d = (
             self.config.alpha
             * self.config.stance_ticks
             * self.config.dt
-            * command.horizontal_velocity
+            * command.horizontal_velocity ### changedddd!!!
         )
         delta_p = np.array([delta_p_2d[0], delta_p_2d[1], 0])
         theta = (
@@ -54,6 +55,7 @@ class SwingController:
         foot_location = state.foot_locations[:, leg_index]
         swing_height_ = self.swing_height(swing_prop, leg_index)  # Pass leg_index for clearance selection
         touchdown_location = self.raibert_touchdown_location(leg_index, command)
+        print(f"the touchdown location is {touchdown_location}")
         time_left = self.config.dt * self.config.swing_ticks * (1.0 - swing_prop)
         v = (touchdown_location - foot_location) / time_left * np.array([1, 1, 0])
         delta_foot_location = v * self.config.dt

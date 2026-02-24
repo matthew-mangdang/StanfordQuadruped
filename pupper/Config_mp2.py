@@ -74,7 +74,10 @@ class Configuration:
         self.dt = 0.015
         self.num_phases = 4
         self.contact_phases = np.array(
-            [[1, 1, 1, 0], [1, 0, 1, 1], [1, 0, 1, 1], [1, 1, 1, 0]]
+            [[1, 1, 1, 0], 
+            [1, 0, 1, 1], 
+            [1, 0, 1, 1], 
+            [1, 1, 1, 0]]
         )
         self.overlap_time = (
             0.09  # duration of the phase where all four feet are on the ground
@@ -93,20 +96,34 @@ class Configuration:
         self.trot_delta_x = self.delta_x
         self.trot_delta_y = self.delta_y
         self.trot_alpha = self.alpha
+        self.trot_x_shift = self.x_shift
 
         # Crawl gait (one leg swings per phase)
         self.crawl_contact_phases = np.array(
-            [[1, 1, 1, 0], [1, 0, 1, 1], [1, 0, 1, 1], [1, 1, 1, 0]]
+            [[0, 1, 1, 1], 
+            [1, 0, 1, 1], 
+            [1, 1, 0, 1], 
+            [1, 1, 1, 0]]
         )
-        self.crawl_overlap_time = 0.35
-        self.crawl_swing_time = 0.7
-        self.crawl_z_clearance = 0.05
-        self.crawl_front_z_clearance = 0.03 
-        self.crawl_rear_z_clearance = 0.05  
+        self.crawl_overlap_time = 0.7 #0.35
+        self.crawl_swing_time = 1.7 #0.7
+        self.crawl_z_clearance = 0.03
+        self.crawl_front_z_clearance = 0.045 
+        self.crawl_rear_z_clearance = 0.045  #0.05
         self.crawl_height_delta = 0.0
-        self.crawl_delta_y = 0.070  # 0.050
+        self.crawl_delta_y = 0.05  # 0.050
         self.crawl_delta_x = 0.059
         self.crawl_alpha = 0.7
+        self.crawl_x_shift = 0.012 # 0.007
+
+        self.crawl_pitch_factor = 0.0  # ~5.7 deg
+        self.crawl_roll_factor = 0.0   # ~5.7 deg
+
+        # Body translation to help obstacle clearance (meters)
+        self.crawl_front_x_shift = -0.000
+        self.crawl_rear_x_shift = 0.00
+        self.crawl_front_z_offset = 0.0
+        self.crawl_rear_z_offset = 0.0
 
         ######################## GEOMETRY ######################
         self.LEG_FB = 0.059  # front-back distance from center line to leg axis
@@ -208,17 +225,29 @@ class Configuration:
 
     @property
     def stance_ticks(self):
-        return 2 * self.overlap_ticks + self.swing_ticks
+        #return 2 * self.overlap_ticks + self.swing_ticks
+        return self.overlap_time + int(self.swing_time/2)
 
+    """
     @property
     def phase_ticks(self):
         return np.array(
             [self.overlap_ticks, self.swing_ticks, self.overlap_ticks, self.swing_ticks]
         )
-
+    """
+    @property
+    def phase_ticks(self):
+    # each phase has the same duration
+        ticks_per_phase = int(self.swing_time / self.dt) 
+        return np.array([ticks_per_phase,
+                        ticks_per_phase,
+                        ticks_per_phase,
+                        ticks_per_phase])
+    
     @property
     def phase_length(self):
-        return 2 * self.overlap_ticks + 2 * self.swing_ticks
+        #return 2 * self.overlap_ticks + 2 * self.swing_ticks
+        return np.sum(self.phase_ticks)
 
         
 class SimulationConfig:

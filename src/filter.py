@@ -123,6 +123,7 @@ class butter_filter_live():
     def __init__(self, cutoff_freq, dt, order=4):
         """
         Set up a real-time Butterworth filter for continuous sample processing.
+        The optimal settings can be found using the another object "signal_processor".
         
         Input:
             cutoff_freq: Cutoff frequency in Hz
