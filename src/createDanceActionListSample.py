@@ -67,8 +67,10 @@
 from src.MovementGroup import MovementGroups
 
 Move = MovementGroups()
-Move.move_right()
-#Move.obstacle_climb_simple()
+#Move.move_right()
+Move.obstacle_climb_front(step_x = 0.045, lift_ht = 0.05, time_uni = 1, time_acc = 1)
+Move.stop()
+Move.obstacle_climb_front(step_x = 0.045, lift_ht = 0.05, time_uni = 1, time_acc = 1)
 Move.stop()
 """
 # Level 1: movements without input parameters

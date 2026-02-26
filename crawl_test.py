@@ -5,17 +5,14 @@ from collections import deque
 from src.Controller import Controller
 from src.State import State, BehaviorState
 from src.MovementScheme import MovementScheme
-from src.createDanceActionListSample import MovementLib
+from src.crawl_dance_action_list import MovementLib
 from MangDang.mini_pupper.HardwareInterface import HardwareInterface
 from pupper.Config_mp2 import Configuration
+#from MangDang.mini_pupper.Config import Configuration
 from pupper.Kinematics import four_legs_inverse_kinematics
 from MangDang.mini_pupper.display import Display
 from src.Command import Command
 from src.Imu_Esp32 import IMU
-from src.Imu_Esp32 import IIRLowPassFilter
-from src.Imu_Esp32 import first_order_IIRLowPassFilter
-from src.Imu_Esp32 import PIDController
-from src.Imu_Esp32 import KalmanFilter
 from src.Utilities import start_buffer, initialize_stance 
 from src.filter import butter_filter_live
 
@@ -23,7 +20,7 @@ from MangDang.mini_pupper.ESP32Interface import ESP32Interface
 
 
 def main(use_imu=False):
-    """Run robot: auto-activate, auto-trot, constant forward motion."""
+    """Test script to run the crawl gait."""
 
     start_buffer(0.0) # seconds
 

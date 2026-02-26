@@ -80,10 +80,10 @@ class Configuration:
             [1, 1, 1, 0]]
         )
         self.overlap_time = (
-            0.09  # duration of the phase where all four feet are on the ground
+            0.09 #0.09 # duration of the phase where all four feet are on the ground
         )
         self.swing_time = (
-            0.1  # duration of the phase when only two feet are on the ground
+            0.1 #0.1  # duration of the phase when only two feet are on the ground
         )
 
         # Trot defaults (used as baseline when switching gait profiles)
@@ -228,7 +228,7 @@ class Configuration:
         #return 2 * self.overlap_ticks + self.swing_ticks
         return self.overlap_time + int(self.swing_time/2)
 
-    """
+    
     @property
     def phase_ticks(self):
         return np.array(
@@ -243,11 +243,11 @@ class Configuration:
                         ticks_per_phase,
                         ticks_per_phase,
                         ticks_per_phase])
-    
+    """
     @property
     def phase_length(self):
-        #return 2 * self.overlap_ticks + 2 * self.swing_ticks
-        return np.sum(self.phase_ticks)
+        return 2 * self.overlap_ticks + 2 * self.swing_ticks
+        #return np.sum(self.phase_ticks)
 
         
 class SimulationConfig:

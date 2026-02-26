@@ -116,13 +116,6 @@ class Controller:
         """
 
         ########## Update operating state based on command ######
-
-        # Update dance mode flags based on incoming command
-        # - dance_active() toggles when triggered from the controller/joystick
-        # - pseudo_dance_active() forces dance mode when running scripts
-        self.dance_active(command)
-        self.pseudo_dance_active(command)
-
         if command.activate_event:
             state.behavior_state = self.activate_transition_mapping[state.behavior_state]
         elif command.trot_event:
@@ -136,6 +129,9 @@ class Controller:
             disp.show_state(BehaviorState.TROT)
         else:    
             disp.show_state(state.behavior_state)
+
+        self.dance_active(command)
+        self.pseudo_dance_active(command)
 
         if state.behavior_state == BehaviorState.CRAWL:
             self.set_gait_profile("crawl")
